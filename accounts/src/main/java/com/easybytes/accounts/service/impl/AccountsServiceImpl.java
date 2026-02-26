@@ -1,16 +1,20 @@
 package com.easybytes.accounts.service.impl;
 
 import com.easybytes.accounts.constants.AccountsConstants;
+import com.easybytes.accounts.dto.AccountsDto;
 import com.easybytes.accounts.dto.CustomerDto;
 import com.easybytes.accounts.entity.Accounts;
 import com.easybytes.accounts.entity.Customer;
 import com.easybytes.accounts.exception.CustomerAlreadyExistsException;
+import com.easybytes.accounts.exception.ResourceNotFoundException;
+import com.easybytes.accounts.mapper.AccountsMapper;
 import com.easybytes.accounts.mapper.CustomerMapper;
 import com.easybytes.accounts.repository.AccountsRepository;
 import com.easybytes.accounts.repository.CustomerRepository;
 import com.easybytes.accounts.service.IAccountService;
 import lombok.AllArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.Optional;
@@ -21,7 +25,7 @@ import java.util.Random;
 public class AccountsServiceImpl implements IAccountService {
     private AccountsRepository accountsRepository;
     private CustomerRepository customerRepository;
-    /*
+    /**
     * @param customerDto - CustomerDto Object
      */
     @Override
@@ -37,6 +41,77 @@ public class AccountsServiceImpl implements IAccountService {
         Customer savedCustomer = customerRepository.save(customer);
         accountsRepository.save(createNewAccount(savedCustomer));
     }
+    /**
+     * @param mobileNumber - Input Mobile Number
+     * @return Accounts Details based on a given mobileNumber
+     */
+    @Override
+    public CustomerDto fetchAccount(String mobileNumber) {
+        Customer customer = customerRepository.findByMobileNumber(mobileNumber).orElseThrow(
+                ()-> new ResourceNotFoundException("Customer", "mobileNumber", mobileNumber)
+        );
+        long customerId = customer.getCustomerId();
+        Accounts accounts = accountsRepository.findByCustomerId(customerId).orElseThrow(
+                ()-> new ResourceNotFoundException("Account", "customerId", String.valueOf(customerId))
+        );
+        CustomerDto customerDto = CustomerMapper.mapToCustomerDto(customer, new CustomerDto());
+        customerDto.setAccountsDto(AccountsMapper.mapToAccountsDto(accounts, new AccountsDto()));
+        return customerDto;
+    }
+    /**
+     * @param customerId - Input Customer id
+     * @return Accounts
+     */
+    @Override
+    public Optional<Accounts> findByCustomerId(Long customerId) {
+        return accountsRepository.findByCustomerId(customerId);
+    }
+    /**
+     * @param customerDto - Input Customer Dto
+     * @return boolean
+     */
+    @Override
+    @Transactional
+    public boolean updateAccount(CustomerDto customerDto) {
+        // need to update both account and customer information
+        // verify that the account exists, and verify that the customer exists
+        boolean isUpdated = false;
+        AccountsDto accountsDto = customerDto.getAccountsDto();
+        if (accountsDto != null) {
+            Accounts account = accountsRepository
+                    .findById(accountsDto.getAccountNumber())
+                    .orElseThrow(()-> new ResourceNotFoundException("Account", "accountNumber",
+                            accountsDto.getAccountNumber().toString())
+                    );
+            AccountsMapper.mapToAccounts(accountsDto, account);
+            account = accountsRepository.save(account);
+            Long customerId = account.getCustomerId();
+            // the customer needs to be updated, thus, retrieve the customer from database
+            Customer customer = customerRepository
+                    .findById(customerId)
+                    .orElseThrow(()-> new ResourceNotFoundException("Customer", "CustomerId",
+                            String.valueOf(customerId)));
+            CustomerMapper.mapToCustomer(customerDto, customer);
+            customerRepository.save(customer);
+            isUpdated = true;
+        }
+        return isUpdated;
+    }
+
+    /**
+     * @param mobileNumber - Input Mobile Number
+     * @return boolean indicating if the delete of Account details is successful or not
+     */
+    @Override
+    public boolean deleteAccount(String mobileNumber) {
+        Customer customer = customerRepository.findByMobileNumber(mobileNumber).orElseThrow(
+                ()-> new ResourceNotFoundException("Customer", "mobileNumber", mobileNumber)
+        );
+        accountsRepository.deleteByCustomerId(customer.getCustomerId());
+        customerRepository.deleteById(customer.getCustomerId());
+        return true;
+    }
+
     /**
     * @param customer - Customer Object
     * @return the new account details
